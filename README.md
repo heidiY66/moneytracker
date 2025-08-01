@@ -301,6 +301,25 @@
             opacity: 0.3;
         }
         
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 30px;
+            font-size: 15px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .toast.show {
+            opacity: 1;
+        }
+        
         @media (max-width: 400px) {
             .balance-amount {
                 font-size: 32px;
@@ -322,16 +341,16 @@
     <!-- 余额概览 -->
     <div class="balance-container">
         <div class="balance-title">当前余额</div>
-        <div class="balance-amount">¥ 8,450.00</div>
+        <div class="balance-amount">¥ <span id="total-balance">0.00</span></div>
         
         <div class="summary">
             <div class="income-box">
                 <div class="income-title">总收入</div>
-                <div class="income-amount">¥ 12,560.00</div>
+                <div class="income-amount">¥ <span id="total-income">0.00</span></div>
             </div>
             <div class="expense-box">
                 <div class="expense-title">总支出</div>
-                <div class="expense-amount">¥ 4,110.00</div>
+                <div class="expense-amount">¥ <span id="total-expense">0.00</span></div>
             </div>
         </div>
     </div>
@@ -368,116 +387,197 @@
             </select>
         </div>
         
-        <button class="btn-submit">添加记录</button>
+        <button class="btn-submit" id="add-transaction">添加记录</button>
     </div>
     
     <!-- 历史记录 -->
     <div class="history">
         <div class="history-header">
             <div class="history-title">收支记录</div>
-            <button class="clear-btn">清空记录</button>
+            <button class="clear-btn" id="clear-all">清空记录</button>
         </div>
         
-        <ul class="transaction-list">
-            <li class="transaction-item income">
-                <div class="transaction-info">
-                    <div class="transaction-name">工资收入</div>
-                    <div class="transaction-date">2023-06-05 | 工资薪水</div>
-                </div>
-                <div class="transaction-amount">+ ¥8,500.00</div>
-                <button class="delete-btn"><i class="fas fa-times"></i></button>
-            </li>
-            
-            <li class="transaction-item expense">
-                <div class="transaction-info">
-                    <div class="transaction-name">超市购物</div>
-                    <div class="transaction-date">2023-06-10 | 购物消费</div>
-                </div>
-                <div class="transaction-amount">- ¥256.80</div>
-                <button class="delete-btn"><i class="fas fa-times"></i></button>
-            </li>
-            
-            <li class="transaction-item expense">
-                <div class="transaction-info">
-                    <div class="transaction-name">朋友聚餐</div>
-                    <div class="transaction-date">2023-06-12 | 餐饮美食</div>
-                </div>
-                <div class="transaction-amount">- ¥198.00</div>
-                <button class="delete-btn"><i class="fas fa-times"></i></button>
-            </li>
-            
-            <li class="transaction-item income">
-                <div class="transaction-info">
-                    <div class="transaction-name">理财收益</div>
-                    <div class="transaction-date">2023-06-15 | 投资理财</div>
-                </div>
-                <div class="transaction-amount">+ ¥1,200.00</div>
-                <button class="delete-btn"><i class="fas fa-times"></i></button>
-            </li>
-            
-            <li class="transaction-item expense">
-                <div class="transaction-info">
-                    <div class="transaction-name">加油费</div>
-                    <div class="transaction-date">2023-06-18 | 交通出行</div>
-                </div>
-                <div class="transaction-amount">- ¥350.00</div>
-                <button class="delete-btn"><i class="fas fa-times"></i></button>
+        <ul class="transaction-list" id="transaction-list">
+            <li class="no-transactions">
+                <i class="fas fa-receipt"></i>
+                <p>暂无收支记录</p>
             </li>
         </ul>
     </div>
 
+    <!-- 提示消息 -->
+    <div class="toast" id="toast"></div>
+
     <script>
-        // 切换收入/支出类型
-        const typeButtons = document.querySelectorAll('.type-btn');
-        typeButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                typeButtons.forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
+        // 数据存储
+        let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+        
+        // DOM元素
+        const transactionList = document.getElementById('transaction-list');
+        const totalBalance = document.getElementById('total-balance');
+        const totalIncome = document.getElementById('total-income');
+        const totalExpense = document.getElementById('total-expense');
+        const addTransactionBtn = document.getElementById('add-transaction');
+        const clearAllBtn = document.getElementById('clear-all');
+        const toast = document.getElementById('toast');
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            renderTransactions();
+            updateSummary();
+            
+            // 切换收入/支出类型
+            const typeButtons = document.querySelectorAll('.type-btn');
+            typeButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    typeButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                });
             });
+            
+            // 添加新记录
+            addTransactionBtn.addEventListener('click', addTransaction);
+            
+            // 清空记录
+            clearAllBtn.addEventListener('click', clearAllTransactions);
         });
         
-        // 添加新记录
-        const submitButton = document.querySelector('.btn-submit');
-        submitButton.addEventListener('click', function() {
+        // 添加交易记录
+        function addTransaction() {
             const description = document.getElementById('description').value;
-            const amount = document.getElementById('amount').value;
+            const amount = parseFloat(document.getElementById('amount').value);
             const category = document.getElementById('category').value;
             const type = document.querySelector('.type-btn.active').dataset.type;
             
             if (!description || !amount) {
-                alert('请填写完整信息');
+                showToast('请填写完整信息');
                 return;
             }
             
-            alert(`记录添加成功！\n类型: ${type === 'income' ? '收入' : '支出'}\n说明: ${description}\n金额: ¥${amount}\n分类: ${document.querySelector(`#category option[value="${category}"]`).textContent}`);
+            if (amount <= 0) {
+                showToast('金额必须大于0');
+                return;
+            }
             
-            // 实际应用中这里会将记录添加到列表并更新余额
+            const transaction = {
+                id: Date.now(),
+                description,
+                amount,
+                type,
+                category,
+                date: new Date().toISOString().split('T')[0]
+            };
+            
+            transactions.push(transaction);
+            saveTransactions();
+            renderTransactions();
+            updateSummary();
+            
+            // 重置表单
             document.getElementById('description').value = '';
             document.getElementById('amount').value = '';
-        });
+            
+            showToast('记录添加成功！');
+        }
         
-        // 删除记录
-        const deleteButtons = document.querySelectorAll('.delete-btn');
-        deleteButtons.forEach(button => {
-            button.addEventListener('click', function() {
-                const item = this.closest('.transaction-item');
-                if (confirm('确定要删除这条记录吗？')) {
-                    item.style.opacity = '0';
-                    setTimeout(() => {
-                        item.remove();
-                    }, 300);
-                }
-            });
-        });
+        // 删除交易记录
+        function deleteTransaction(id) {
+            transactions = transactions.filter(transaction => transaction.id !== id);
+            saveTransactions();
+            renderTransactions();
+            updateSummary();
+            showToast('记录已删除');
+        }
         
-        // 清空记录
-        const clearButton = document.querySelector('.clear-btn');
-        clearButton.addEventListener('click', function() {
-            if (confirm('确定要清空所有记录吗？此操作不可恢复。')) {
-                const list = document.querySelector('.transaction-list');
-                list.innerHTML = '<div class="no-transactions"><i class="fas fa-receipt"></i><p>暂无收支记录</p></div>';
+        // 清空所有记录
+        function clearAllTransactions() {
+            if (transactions.length === 0) {
+                showToast('没有记录可清空');
+                return;
             }
-        });
+            
+            if (confirm('确定要清空所有记录吗？此操作不可恢复。')) {
+                transactions = [];
+                saveTransactions();
+                renderTransactions();
+                updateSummary();
+                showToast('所有记录已清空');
+            }
+        }
+        
+        // 保存到本地存储
+        function saveTransactions() {
+            localStorage.setItem('transactions', JSON.stringify(transactions));
+        }
+        
+        // 渲染交易记录
+        function renderTransactions() {
+            if (transactions.length === 0) {
+                transactionList.innerHTML = `
+                    <li class="no-transactions">
+                        <i class="fas fa-receipt"></i>
+                        <p>暂无收支记录</p>
+                    </li>
+                `;
+                return;
+            }
+            
+            transactionList.innerHTML = transactions.map(transaction => {
+                const sign = transaction.type === 'income' ? '+' : '-';
+                const formattedAmount = transaction.amount.toFixed(2);
+                const date = new Date(transaction.date).toLocaleDateString('zh-CN');
+                
+                return `
+                    <li class="transaction-item ${transaction.type}">
+                        <div class="transaction-info">
+                            <div class="transaction-name">${transaction.description}</div>
+                            <div class="transaction-date">${date} | ${getCategoryName(transaction.category)}</div>
+                        </div>
+                        <div class="transaction-amount">${sign} ¥${formattedAmount}</div>
+                        <button class="delete-btn" onclick="deleteTransaction(${transaction.id})"><i class="fas fa-times"></i></button>
+                    </li>
+                `;
+            }).join('');
+        }
+        
+        // 获取分类名称
+        function getCategoryName(categoryValue) {
+            const categorySelect = document.getElementById('category');
+            const options = categorySelect.options;
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value === categoryValue) {
+                    return options[i].text;
+                }
+            }
+            return '其他';
+        }
+        
+        // 更新摘要信息
+        function updateSummary() {
+            const income = transactions
+                .filter(t => t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            const expense = transactions
+                .filter(t => t.type === 'expense')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            const balance = income - expense;
+            
+            document.getElementById('total-balance').textContent = balance.toFixed(2);
+            document.getElementById('total-income').textContent = income.toFixed(2);
+            document.getElementById('total-expense').textContent = expense.toFixed(2);
+        }
+        
+        // 显示提示消息
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
     </script>
 </body>
 </html>
